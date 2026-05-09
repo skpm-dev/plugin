@@ -33,7 +33,7 @@ class RegistryClient {
         .build()
 
     private val gson = Gson()
-    private val registryUrl = "http://localhost:8080"
+    private val registryUrl = "https://skpm-registry-production.up.railway.app"
 
     fun fetchPackage(name: String): Package? {
         val response = get("$registryUrl/packages/$name")
