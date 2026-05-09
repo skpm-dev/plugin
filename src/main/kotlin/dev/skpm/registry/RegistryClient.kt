@@ -28,15 +28,18 @@ data class Package(
 
 class RegistryClient {
 
+    companion object {
+        private const val BASE_URL = "https://skpm-registry-production.up.railway.app"
+    }
+
     private val httpClient = HttpClient.newBuilder()
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build()
 
     private val gson = Gson()
-    private val registryUrl = "https://skpm-registry-production.up.railway.app"
 
     fun fetchPackage(name: String): Package? {
-        val response = get("$registryUrl/packages/$name")
+        val response = get("$BASE_URL/packages/$name")
 
         if (response.statusCode() == 404) return null
 
