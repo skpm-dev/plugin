@@ -1,0 +1,16 @@
+name: SKPM
+version: '1.0.0'
+main: dev.skpm.SKPMPlugin
+api-version: '1.21'
+description: Package manager for Skript
+authors:
+  - skpm-dev
+commands:
+  skpm:
+    description: SKPM package manager
+    usage: /skpm <install|remove|list> [package]
+    permission: skpm.use
+permissions:
+  skpm.use:
+    description: Allows use of SKPM commands
+    default: op
