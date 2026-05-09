@@ -35,8 +35,10 @@ class Installer(private val plugin: JavaPlugin) {
                     plugin.logger.info("Downloaded $name")
                 }
 
+                val fileNames = versionEntry.files.mapNotNull { it.name }
+
                 plugin.server.scheduler.runTask(plugin, Runnable {
-                    reloadSkript(packageName)
+                    reloadFiles(packageName, fileNames)
                     onComplete("Installed ${pkg.name}@${pkg.latest}")
                 })
             } catch (e: Exception) {
@@ -58,7 +60,7 @@ class Installer(private val plugin: JavaPlugin) {
         packageDir.deleteRecursively()
 
         plugin.server.scheduler.runTask(plugin, Runnable {
-            reloadSkript(packageName)
+            reloadFiles(packageName, emptyList())
             onComplete("Removed $packageName")
         })
     }
@@ -71,10 +73,19 @@ class Installer(private val plugin: JavaPlugin) {
             ?: emptyList()
     }
 
-    private fun reloadSkript(packageName: String) {
-        plugin.server.dispatchCommand(
-            plugin.server.consoleSender,
-            "skript reload skpm/$packageName"
-        )
+    private fun reloadFiles(packageName: String, fileNames: List<String>) {
+        if (fileNames.isEmpty()) {
+            plugin.server.dispatchCommand(
+                plugin.server.consoleSender,
+                "skript reload skpm/$packageName"
+            )
+        } else {
+            for (name in fileNames) {
+                plugin.server.dispatchCommand(
+                    plugin.server.consoleSender,
+                    "skript reload skpm/$packageName/$name"
+                )
+            }
+        }
     }
 }
