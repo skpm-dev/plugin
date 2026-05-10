@@ -55,6 +55,11 @@ class RegistryClient {
 
         if (response.statusCode() == 404) return null
 
+        if (response.statusCode() == 410) {
+            val reason = parseErrorMessage(response.body()) ?: "this package has been removed from the registry"
+            throw RuntimeException(reason)
+        }
+
         if (response.statusCode() != 200) {
             throw RuntimeException("Registry returned ${response.statusCode()} for package '$name'")
         }
@@ -90,6 +95,11 @@ class RegistryClient {
 
         return response.body()
     }
+
+    private fun parseErrorMessage(body: String): String? = try {
+        gson.fromJson(body, com.google.gson.JsonObject::class.java)
+            ?.get("error")?.asString
+    } catch (_: Exception) { null }
 
     private fun get(url: String): HttpResponse<String> {
         val request = HttpRequest.newBuilder()
