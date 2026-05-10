@@ -29,6 +29,7 @@ tasks {
     }
     shadowJar {
         archiveClassifier.set("")
+        archiveFileName.set("SKPM.jar")
     }
     build {
         dependsOn(shadowJar)

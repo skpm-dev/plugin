@@ -1,13 +1,12 @@
-name: CI
+name: Release
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    tags:
+      - 'v*'
 
 jobs:
-  test:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,10 +18,16 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v3
 
-      - run: ./gradlew test
+      - name: Build JAR
+        run: ./gradlew shadowJar
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/libs/SKPM.jar
+          generate_release_notes: true
 
       - name: Trigger e2e
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.E2E_DISPATCH_TOKEN }}
