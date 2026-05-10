@@ -1,6 +1,7 @@
 package dev.skpm.installer
 
 import dev.skpm.registry.Package
+import dev.skpm.registry.PackageSummary
 import dev.skpm.registry.RegistryClient
 import org.bukkit.plugin.java.JavaPlugin
 import java.io.File
@@ -92,7 +93,60 @@ class Installer(private val plugin: JavaPlugin) {
         })
     }
 
-    fun listInstalled(): List<String> = lock.read().map { it.name }
+    fun listInstalled(): List<LockEntry> = lock.read()
+
+    fun search(query: String, onComplete: (List<PackageSummary>) -> Unit, onError: (String) -> Unit) {
+        plugin.server.scheduler.runTaskAsynchronously(plugin, Runnable {
+            try {
+                val results = registry.searchPackages(query)
+                plugin.server.scheduler.runTask(plugin, Runnable { onComplete(results) })
+            } catch (e: Exception) {
+                plugin.logger.severe("SKPM search error: ${e.message}")
+                onError("Search failed: ${e.message ?: e::class.simpleName}")
+            }
+        })
+    }
+
+    fun update(packageName: String, onComplete: (String) -> Unit, onError: (String) -> Unit) {
+        plugin.server.scheduler.runTaskAsynchronously(plugin, Runnable {
+            try {
+                val safePackageName = try {
+                    requireSafeSegment(packageName, "package name")
+                } catch (e: IllegalArgumentException) {
+                    return@Runnable onError(e.message ?: "Invalid package name")
+                }
+
+                val entry = lock.read().find { it.name == safePackageName }
+                    ?: return@Runnable onError("Package '$safePackageName' is not installed")
+
+                val pkg = registry.fetchPackage(safePackageName)
+                    ?: return@Runnable onError("Package '$safePackageName' not found in registry")
+
+                if (pkg.latest == entry.version) {
+                    return@Runnable onComplete("$safePackageName is already up to date (${entry.version})")
+                }
+
+                val oldVersion = entry.version
+                install(
+                    safePackageName,
+                    onComplete = { onComplete("Updated $safePackageName $oldVersion → ${pkg.latest}") },
+                    onError = onError
+                )
+            } catch (e: Exception) {
+                plugin.logger.severe("SKPM update error: ${e.message}")
+                onError("Failed to update $packageName: ${e.message ?: e::class.simpleName}")
+            }
+        })
+    }
+
+    fun updateAll(onComplete: (String) -> Unit, onError: (String) -> Unit) {
+        val installed = lock.read()
+        if (installed.isEmpty()) {
+            onComplete("No packages installed.")
+            return
+        }
+        installed.forEach { entry -> update(entry.name, onComplete, onError) }
+    }
 
     private fun reloadFiles(packageName: String, fileNames: List<String>) {
         if (fileNames.isEmpty()) {

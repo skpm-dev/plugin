@@ -6,7 +6,7 @@ import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
 import org.bukkit.plugin.java.JavaPlugin
 
-class SKPMCommand(plugin: JavaPlugin) : CommandExecutor {
+class SKPMCommand(private val plugin: JavaPlugin) : CommandExecutor {
 
     private val installer = Installer(plugin)
 
@@ -30,6 +30,14 @@ class SKPMCommand(plugin: JavaPlugin) : CommandExecutor {
                     return true
                 }
                 handleRemove(sender, args[1])
+            }
+            "update" -> handleUpdate(sender, if (args.size >= 2) args[1] else null)
+            "search" -> {
+                if (args.size < 2) {
+                    sender.sendMessage("Usage: /skpm search <query>")
+                    return true
+                }
+                handleSearch(sender, args.drop(1).joinToString(" "))
             }
             "list" -> handleList(sender)
             else -> sender.sendMessage("Unknown subcommand. ${usage()}")
@@ -58,6 +66,41 @@ class SKPMCommand(plugin: JavaPlugin) : CommandExecutor {
         )
     }
 
+    private fun handleUpdate(sender: CommandSender, packageName: String?) {
+        if (packageName != null) {
+            sender.sendMessage("[SKPM] Checking for updates to $packageName...")
+            installer.update(
+                packageName,
+                onComplete = { msg -> sender.sendMessage("[SKPM] $msg") },
+                onError = { msg -> sender.sendMessage("[SKPM] Error: $msg") }
+            )
+        } else {
+            sender.sendMessage("[SKPM] Checking for updates...")
+            installer.updateAll(
+                onComplete = { msg -> sender.sendMessage("[SKPM] $msg") },
+                onError = { msg -> sender.sendMessage("[SKPM] Error: $msg") }
+            )
+        }
+    }
+
+    private fun handleSearch(sender: CommandSender, query: String) {
+        sender.sendMessage("[SKPM] Searching for '$query'...")
+        installer.search(
+            query,
+            onComplete = { results ->
+                if (results.isEmpty()) {
+                    sender.sendMessage("[SKPM] No packages found for '$query'.")
+                } else {
+                    sender.sendMessage("[SKPM] Results for '$query':")
+                    results.forEach { pkg ->
+                        sender.sendMessage("  ${pkg.name}@${pkg.latest} — ${pkg.description}")
+                    }
+                }
+            },
+            onError = { msg -> sender.sendMessage("[SKPM] Error: $msg") }
+        )
+    }
+
     private fun handleList(sender: CommandSender) {
         val installed = installer.listInstalled()
 
@@ -66,9 +109,9 @@ class SKPMCommand(plugin: JavaPlugin) : CommandExecutor {
             return
         }
 
-        sender.sendMessage("[SKPM] Installed packages:")
-        installed.forEach { name -> sender.sendMessage("  - $name") }
+        sender.sendMessage("[SKPM] Installed packages (${installed.size}):")
+        installed.forEach { entry -> sender.sendMessage("  - ${entry.name}@${entry.version}") }
     }
 
-    private fun usage() = "Usage: /skpm <install|remove|list> [package]"
+    private fun usage() = "Usage: /skpm <install|remove|update|search|list> [package]"
 }
