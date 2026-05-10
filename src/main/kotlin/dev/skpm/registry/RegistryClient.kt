@@ -30,7 +30,7 @@ data class Package(
 class RegistryClient {
 
     companion object {
-        private const val BASE_URL = "https://skpm-registry-production.up.railway.app"
+        private const val BASE_URL = "https://registry.skpm.org"
     }
 
     private val httpClient = HttpClient.newBuilder()
