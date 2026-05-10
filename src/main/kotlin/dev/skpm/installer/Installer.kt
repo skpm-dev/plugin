@@ -23,7 +23,7 @@ class Installer(private val plugin: JavaPlugin) {
 
     private val registry = RegistryClient()
     private val scriptsDir = File(plugin.dataFolder.parentFile, "Skript/scripts/skpm")
-    private val lockFile = File(plugin.dataFolder, "installed.json")
+    private val lock = LockFile(File(plugin.dataFolder, "skript.lock"))
 
     fun install(packageName: String, onComplete: (String) -> Unit, onError: (String) -> Unit) {
         plugin.server.scheduler.runTaskAsynchronously(plugin, Runnable {
@@ -66,6 +66,10 @@ class Installer(private val plugin: JavaPlugin) {
                 }
 
                 val fileNames = versionEntry.files.mapNotNull { it.name }
+                val integrityMap = versionEntry.files
+                    .filter { it.name != null }
+                    .associate { it.name!! to (it.sha256 ?: "") }
+                lock.add(LockEntry(safePackageName, pkg.latest!!, integrityMap))
 
                 plugin.server.scheduler.runTask(plugin, Runnable {
                     reloadFiles(safePackageName, fileNames)
@@ -94,6 +98,7 @@ class Installer(private val plugin: JavaPlugin) {
         }
 
         packageDir.deleteRecursively()
+        lock.remove(safePackageName)
 
         plugin.server.scheduler.runTask(plugin, Runnable {
             reloadFiles(safePackageName, emptyList())
@@ -101,13 +106,7 @@ class Installer(private val plugin: JavaPlugin) {
         })
     }
 
-    fun listInstalled(): List<String> {
-        if (!scriptsDir.exists()) return emptyList()
-        return scriptsDir.listFiles()
-            ?.filter { it.isDirectory }
-            ?.map { it.name }
-            ?: emptyList()
-    }
+    fun listInstalled(): List<String> = lock.read().map { it.name }
 
     private fun reloadFiles(packageName: String, fileNames: List<String>) {
         if (fileNames.isEmpty()) {
