@@ -10,7 +10,9 @@ internal fun requireSafeSegment(value: String, label: String): String {
     return value
 }
 
-internal fun sha256Hex(content: String): String {
-    val digest = MessageDigest.getInstance("SHA-256").digest(content.toByteArray(Charsets.UTF_8))
+internal fun sha256Hex(content: String): String = sha256Hex(content.toByteArray(Charsets.UTF_8))
+
+internal fun sha256Hex(bytes: ByteArray): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
     return "sha256:" + digest.joinToString("") { "%02x".format(it) }
 }

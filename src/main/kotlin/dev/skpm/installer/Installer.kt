@@ -13,6 +13,11 @@ class Installer(private val plugin: JavaPlugin) {
     private val lock = LockFile(File(plugin.dataFolder, "skript.lock"))
 
     fun install(packageName: String, onComplete: (String) -> Unit, onError: (String) -> Unit) {
+        if (packageName.startsWith("spigotmc:")) {
+            installFromSpigot(packageName.removePrefix("spigotmc:"), onComplete, onError)
+            return
+        }
+
         plugin.server.scheduler.runTaskAsynchronously(plugin, Runnable {
             try {
                 val safePackageName = try {
@@ -73,11 +78,15 @@ class Installer(private val plugin: JavaPlugin) {
     }
 
     fun remove(packageName: String, onComplete: (String) -> Unit, onError: (String) -> Unit) {
-        val safePackageName = try {
-            requireSafeSegment(packageName, "package name")
-        } catch (e: IllegalArgumentException) {
-            onError(e.message ?: "Invalid package name")
-            return
+        val safePackageName = if (packageName.startsWith("spigotmc:")) {
+            spigotLockName(packageName.removePrefix("spigotmc:"))
+        } else {
+            try {
+                requireSafeSegment(packageName, "package name")
+            } catch (e: IllegalArgumentException) {
+                onError(e.message ?: "Invalid package name")
+                return
+            }
         }
         val packageDir = File(scriptsDir, safePackageName)
 
@@ -86,12 +95,18 @@ class Installer(private val plugin: JavaPlugin) {
             return
         }
 
-        packageDir.deleteRecursively()
-        lock.remove(safePackageName)
+        val fileNames = lock.read().find { it.name == safePackageName }?.files?.keys?.toList() ?: emptyList()
 
         plugin.server.scheduler.runTask(plugin, Runnable {
-            reloadFiles(safePackageName, emptyList())
-            onComplete("Removed $safePackageName")
+            for (name in fileNames) {
+                plugin.server.dispatchCommand(
+                    plugin.server.consoleSender,
+                    "skript disable skpm/$safePackageName/$name"
+                )
+            }
+            packageDir.deleteRecursively()
+            lock.remove(safePackageName)
+            onComplete("Removed $packageName")
         })
     }
 
@@ -148,6 +163,75 @@ class Installer(private val plugin: JavaPlugin) {
             return
         }
         installed.forEach { entry -> update(entry.name, onComplete, onError) }
+    }
+
+    private fun spigotLockName(query: String): String {
+        val numeric = query.toIntOrNull()
+        if (numeric != null) return "spigotmc-$numeric"
+        val slug = query.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        return "spigotmc-$slug"
+    }
+
+    private fun installFromSpigot(query: String, onComplete: (String) -> Unit, onError: (String) -> Unit) {
+        plugin.server.scheduler.runTaskAsynchronously(plugin, Runnable {
+            try {
+                val client = SpigotMCClient()
+
+                val resource: SpigotResource = run {
+                    val numericId = query.toIntOrNull()
+                    if (numericId != null) {
+                        client.findById(numericId)
+                            ?: return@Runnable onError("Resource #$numericId not found, or is not a free Skript resource")
+                    } else {
+                        val matches = client.searchResources(query)
+                        when {
+                            matches.isEmpty() -> return@Runnable onError("No free Skript resources found for '$query' on SpigotMC")
+                            matches.size == 1 -> matches[0]
+                            else -> {
+                                val list = matches.joinToString("\n") { "  #${it.id} — ${it.name} by ${it.author} (${it.version})" }
+                                return@Runnable onError(
+                                    "Multiple Skript resources match '$query'. Use the resource ID to be specific:\n$list\n" +
+                                    "Example: /skpm install spigotmc:${matches[0].id}"
+                                )
+                            }
+                        }
+                    }
+                }
+
+                val files = client.download(resource.id)
+                if (files.isEmpty())
+                    return@Runnable onError("No .sk files found in SpigotMC resource '${resource.name}'")
+
+                val lockName = spigotLockName(query)
+                val packageDir = File(scriptsDir, lockName)
+                packageDir.mkdirs()
+
+                val fileMap = mutableMapOf<String, String>()
+                for ((rawName, bytes) in files) {
+                    val safeName = requireSafeSegment(
+                        rawName.replace(Regex("[^a-zA-Z0-9._-]"), "-"),
+                        "file name"
+                    )
+                    val dest = File(packageDir, safeName).canonicalFile
+                    if (!dest.startsWith(packageDir.canonicalFile))
+                        throw SecurityException("File '$safeName' escapes package directory")
+                    dest.writeBytes(bytes)
+                    fileMap[safeName] = sha256Hex(bytes)
+                    plugin.logger.info("Downloaded $safeName from SpigotMC")
+                }
+
+                val fileNames = fileMap.keys.toList()
+                lock.add(LockEntry(lockName, resource.version, fileMap))
+
+                plugin.server.scheduler.runTask(plugin, Runnable {
+                    reloadFiles(lockName, fileNames)
+                    onComplete("Installed ${resource.name} (${resource.version}) from SpigotMC")
+                })
+            } catch (e: Exception) {
+                plugin.logger.severe("SKPM SpigotMC install error: ${e.message}")
+                onError("Failed to install from SpigotMC: ${e.message ?: e::class.simpleName}")
+            }
+        })
     }
 
     private fun reloadFiles(packageName: String, fileNames: List<String>) {
