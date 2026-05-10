@@ -7,6 +7,7 @@ import java.net.URLEncoder
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.time.Duration
 
 data class PackageSummary(
     val name: String?,
@@ -44,6 +45,7 @@ class RegistryClient {
 
     private val httpClient = HttpClient.newBuilder()
         .followRedirects(HttpClient.Redirect.NORMAL)
+        .connectTimeout(Duration.ofSeconds(10))
         .build()
 
     private val gson = Gson()
@@ -92,6 +94,7 @@ class RegistryClient {
     private fun get(url: String): HttpResponse<String> {
         val request = HttpRequest.newBuilder()
             .uri(URI.create(url))
+            .timeout(Duration.ofSeconds(30))
             .GET()
             .build()
 

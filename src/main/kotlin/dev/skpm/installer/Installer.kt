@@ -43,7 +43,9 @@ class Installer(private val plugin: JavaPlugin) {
                         throw SecurityException("File '$name' escapes package directory")
                     val content = registry.downloadFile(url)
                     val expected = file.sha256
-                    if (expected != null) {
+                    if (expected == null) {
+                        plugin.logger.warning("No checksum for $name in registry — integrity check skipped")
+                    } else {
                         val actual = sha256Hex(content)
                         if (!actual.equals(expected, ignoreCase = true))
                             throw SecurityException("Checksum mismatch for $name: expected $expected, got $actual")
