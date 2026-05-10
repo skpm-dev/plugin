@@ -14,6 +14,9 @@ repositories {
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
     implementation(kotlin("stdlib"))
+    testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testImplementation("com.google.code.gson:gson:2.10.1")
 }
 
 java {
@@ -21,6 +24,9 @@ java {
 }
 
 tasks {
+    test {
+        useJUnitPlatform()
+    }
     shadowJar {
         archiveClassifier.set("")
     }

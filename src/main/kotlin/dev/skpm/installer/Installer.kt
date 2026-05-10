@@ -4,20 +4,6 @@ import dev.skpm.registry.Package
 import dev.skpm.registry.RegistryClient
 import org.bukkit.plugin.java.JavaPlugin
 import java.io.File
-import java.security.MessageDigest
-
-private val SAFE_SEGMENT = Regex("^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
-
-private fun sha256Hex(content: String): String {
-    val digest = MessageDigest.getInstance("SHA-256").digest(content.toByteArray(Charsets.UTF_8))
-    return "sha256:" + digest.joinToString("") { "%02x".format(it) }
-}
-
-private fun requireSafeSegment(value: String, label: String): String {
-    if (!SAFE_SEGMENT.matches(value) || value.contains(".."))
-        throw IllegalArgumentException("Unsafe $label rejected: '$value'")
-    return value
-}
 
 class Installer(private val plugin: JavaPlugin) {
 
