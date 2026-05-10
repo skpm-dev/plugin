@@ -8,7 +8,8 @@ import java.net.http.HttpResponse
 
 data class FileEntry(
     val name: String?,
-    val url: String?
+    val url: String?,
+    val sha256: String?
 )
 
 data class VersionEntry(
