@@ -4,17 +4,40 @@ import dev.skpm.installer.Installer
 import org.bukkit.command.Command
 import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
+import org.bukkit.command.TabCompleter
 import org.bukkit.plugin.java.JavaPlugin
 
-class SKPMCommand(private val plugin: JavaPlugin) : CommandExecutor {
+class SKPMCommand(private val plugin: JavaPlugin) : CommandExecutor, TabCompleter {
 
     private val installer = Installer(plugin)
+    private val subcommands = listOf("install", "remove", "update", "search", "list", "info")
 
     // Color prefixes
     private val OK   = "§a[SKPM] §r"
     private val ERR  = "§c[SKPM] §r"
     private val INFO = "§e[SKPM] §r"
     private val DIM  = "§7"
+
+    override fun onTabComplete(
+        sender: CommandSender,
+        command: Command,
+        alias: String,
+        args: Array<String>
+    ): List<String> {
+        if (args.size == 1) {
+            val prefix = args[0].lowercase()
+            return subcommands.filter { it.startsWith(prefix) }
+        }
+        if (args.size == 2) {
+            when (args[0].lowercase()) {
+                "remove", "update", "info" -> {
+                    val prefix = args[1].lowercase()
+                    return installer.listInstalled().map { it.name }.filter { it.startsWith(prefix) }
+                }
+            }
+        }
+        return emptyList()
+    }
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<String>): Boolean {
         if (args.isEmpty()) {

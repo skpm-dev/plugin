@@ -7,7 +7,9 @@ class SKPMPlugin : JavaPlugin() {
 
     override fun onEnable() {
         logger.info("SKPM enabled — ready to install packages")
-        getCommand("skpm")?.setExecutor(SKPMCommand(this))
+        val skpmCommand = SKPMCommand(this)
+        getCommand("skpm")?.setExecutor(skpmCommand)
+        getCommand("skpm")?.tabCompleter = skpmCommand
     }
 
     override fun onDisable() {

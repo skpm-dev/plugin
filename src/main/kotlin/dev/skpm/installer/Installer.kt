@@ -5,6 +5,7 @@ import dev.skpm.registry.PackageSummary
 import dev.skpm.registry.RegistryClient
 import org.bukkit.plugin.java.JavaPlugin
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
 class Installer(private val plugin: JavaPlugin) {
@@ -12,6 +13,7 @@ class Installer(private val plugin: JavaPlugin) {
     private val registry = RegistryClient()
     private val scriptsDir = File(plugin.dataFolder.parentFile, "Skript/scripts/skpm")
     private val lock = LockFile(File(plugin.dataFolder, "skript.lock"))
+    private val inProgress: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     fun install(packageName: String, onComplete: (String) -> Unit, onError: (String) -> Unit) {
         if (packageName.startsWith("spigotmc:")) {
@@ -29,6 +31,11 @@ class Installer(private val plugin: JavaPlugin) {
         if (lock.has(safePackageName)) {
             val installedVersion = lock.read().find { it.name == safePackageName }?.version ?: "unknown"
             onComplete("$safePackageName@$installedVersion is already installed. Use /skpm update $safePackageName to check for a newer version.")
+            return
+        }
+
+        if (!inProgress.add(safePackageName)) {
+            onError("An operation on '$safePackageName' is already in progress")
             return
         }
 
@@ -86,9 +93,11 @@ class Installer(private val plugin: JavaPlugin) {
 
                 plugin.server.scheduler.runTask(plugin, Runnable {
                     reloadFiles(safePackageName, fileNames)
+                    inProgress.remove(safePackageName)
                     onComplete("Installed ${pkg.name}@${pkg.latest}")
                 })
             } catch (e: Exception) {
+                inProgress.remove(safePackageName)
                 plugin.logger.severe("SKPM install error: ${e::class.simpleName}: ${e.message}")
                 e.printStackTrace()
                 onError("Failed to install $packageName: ${e.message ?: e::class.simpleName}")
@@ -239,6 +248,11 @@ class Installer(private val plugin: JavaPlugin) {
     }
 
     private fun installFromSpigot(query: String, onComplete: (String) -> Unit, onError: (String) -> Unit) {
+        val lockName = spigotLockName(query)
+        if (!inProgress.add(lockName)) {
+            onError("An operation on '$query' is already in progress")
+            return
+        }
         plugin.server.scheduler.runTaskAsynchronously(plugin, Runnable {
             try {
                 val client = SpigotMCClient()
@@ -268,7 +282,6 @@ class Installer(private val plugin: JavaPlugin) {
                 if (files.isEmpty())
                     return@Runnable onError("No .sk files found in SpigotMC resource '${resource.name}'")
 
-                val lockName = spigotLockName(query)
                 val packageDir = File(scriptsDir, lockName)
                 packageDir.mkdirs()
 
@@ -291,9 +304,11 @@ class Installer(private val plugin: JavaPlugin) {
 
                 plugin.server.scheduler.runTask(plugin, Runnable {
                     reloadFiles(lockName, fileNames)
+                    inProgress.remove(lockName)
                     onComplete("Installed ${resource.name} (${resource.version}) from SpigotMC")
                 })
             } catch (e: Exception) {
+                inProgress.remove(lockName)
                 plugin.logger.severe("SKPM SpigotMC install error: ${e.message}")
                 onError("Failed to install from SpigotMC: ${e.message ?: e::class.simpleName}")
             }
