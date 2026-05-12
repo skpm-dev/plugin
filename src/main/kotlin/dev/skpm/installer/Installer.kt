@@ -5,6 +5,7 @@ import dev.skpm.registry.PackageSummary
 import dev.skpm.registry.RegistryClient
 import org.bukkit.plugin.java.JavaPlugin
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 class Installer(private val plugin: JavaPlugin) {
 
@@ -18,14 +19,21 @@ class Installer(private val plugin: JavaPlugin) {
             return
         }
 
+        val safePackageName = try {
+            requireSafeSegment(packageName, "package name")
+        } catch (e: IllegalArgumentException) {
+            onError(e.message ?: "Invalid package name")
+            return
+        }
+
+        if (lock.has(safePackageName)) {
+            val installedVersion = lock.read().find { it.name == safePackageName }?.version ?: "unknown"
+            onComplete("$safePackageName@$installedVersion is already installed. Use /skpm update $safePackageName to check for a newer version.")
+            return
+        }
+
         plugin.server.scheduler.runTaskAsynchronously(plugin, Runnable {
             try {
-                val safePackageName = try {
-                    requireSafeSegment(packageName, "package name")
-                } catch (e: IllegalArgumentException) {
-                    return@Runnable onError(e.message ?: "Invalid package name")
-                }
-
                 val pkg = registry.fetchPackage(safePackageName)
                     ?: return@Runnable onError("Package '$safePackageName' not found in registry")
 
@@ -63,7 +71,7 @@ class Installer(private val plugin: JavaPlugin) {
                 val integrityMap = versionEntry.files
                     .filter { it.name != null }
                     .associate { it.name!! to (it.sha256 ?: "") }
-                lock.add(LockEntry(safePackageName, pkg.latest!!, integrityMap))
+                lock.add(LockEntry(safePackageName, pkg.latest!!, integrityMap, pkg.description))
 
                 plugin.server.scheduler.runTask(plugin, Runnable {
                     reloadFiles(safePackageName, fileNames)
@@ -124,6 +132,26 @@ class Installer(private val plugin: JavaPlugin) {
         })
     }
 
+    fun info(packageName: String, onComplete: (Package) -> Unit, onError: (String) -> Unit) {
+        val safePackageName = try {
+            requireSafeSegment(packageName, "package name")
+        } catch (e: IllegalArgumentException) {
+            onError(e.message ?: "Invalid package name")
+            return
+        }
+
+        plugin.server.scheduler.runTaskAsynchronously(plugin, Runnable {
+            try {
+                val pkg = registry.fetchPackage(safePackageName)
+                    ?: return@Runnable onError("Package '$safePackageName' not found in registry")
+                plugin.server.scheduler.runTask(plugin, Runnable { onComplete(pkg) })
+            } catch (e: Exception) {
+                plugin.logger.severe("SKPM info error: ${e.message}")
+                onError("Failed to fetch info: ${e.message ?: e::class.simpleName}")
+            }
+        })
+    }
+
     fun update(packageName: String, onComplete: (String) -> Unit, onError: (String) -> Unit) {
         plugin.server.scheduler.runTaskAsynchronously(plugin, Runnable {
             try {
@@ -162,7 +190,34 @@ class Installer(private val plugin: JavaPlugin) {
             onComplete("No packages installed.")
             return
         }
-        installed.forEach { entry -> update(entry.name, onComplete, onError) }
+
+        val total = installed.size
+        val updated = AtomicInteger(0)
+        val upToDate = AtomicInteger(0)
+        val failed = AtomicInteger(0)
+        val remaining = AtomicInteger(total)
+
+        fun finish() {
+            if (remaining.decrementAndGet() == 0) {
+                val parts = mutableListOf<String>()
+                val u = updated.get(); val s = upToDate.get(); val f = failed.get()
+                if (u > 0) parts.add("$u updated")
+                if (s > 0) parts.add("$s already up to date")
+                if (f > 0) parts.add("$f failed")
+                onComplete("Checked $total package${if (total != 1) "s" else ""}: ${parts.joinToString(", ")}.")
+            }
+        }
+
+        installed.forEach { entry ->
+            update(
+                entry.name,
+                onComplete = { msg ->
+                    if (msg.contains("already up to date")) upToDate.incrementAndGet() else updated.incrementAndGet()
+                    finish()
+                },
+                onError = { failed.incrementAndGet(); finish() }
+            )
+        }
     }
 
     private fun spigotLockName(query: String): String {

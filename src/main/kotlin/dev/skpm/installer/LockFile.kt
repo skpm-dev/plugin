@@ -9,7 +9,8 @@ import java.time.Instant
 data class LockEntry(
     val name: String,
     val version: String,
-    val files: Map<String, String>  // filename → "sha256:<hex>"
+    val files: Map<String, String>,  // filename → "sha256:<hex>"
+    val description: String? = null
 )
 
 private data class LockData(

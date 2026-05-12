@@ -8,9 +8,37 @@ authors:
 commands:
   skpm:
     description: SKPM package manager
-    usage: /skpm <install|remove|list> [package]
+    usage: /skpm <install|remove|update|search|list|info> [package]
     permission: skpm.use
 permissions:
   skpm.use:
     description: Allows use of SKPM commands
     default: op
+  skpm.install:
+    description: Install packages
+    default: op
+  skpm.remove:
+    description: Remove packages
+    default: op
+  skpm.update:
+    description: Update packages
+    default: op
+  skpm.search:
+    description: Search for packages
+    default: true
+  skpm.list:
+    description: List installed packages
+    default: true
+  skpm.info:
+    description: View package details
+    default: true
+  skpm.admin:
+    description: All SKPM permissions
+    default: op
+    children:
+      skpm.install: true
+      skpm.remove: true
+      skpm.update: true
+      skpm.search: true
+      skpm.list: true
+      skpm.info: true
