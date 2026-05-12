@@ -26,6 +26,7 @@ data class VersionEntry(
     val skript: String?,
     val minecraft: String?,
     val addons: Map<String, String>?,
+    val dependencies: Map<String, String>?,
     val files: List<FileEntry>?
 )
 

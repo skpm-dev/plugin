@@ -44,6 +44,17 @@ class Installer(private val plugin: JavaPlugin) {
                     return@Runnable onError("Package '$safePackageName' has no files listed")
                 }
 
+                if (!versionEntry.dependencies.isNullOrEmpty()) {
+                    val installedNames = lock.read().map { it.name }.toSet()
+                    val missing = versionEntry.dependencies.keys.filter { it !in installedNames }
+                    if (missing.isNotEmpty()) {
+                        val list = missing.joinToString("\n") { "  /skpm install $it" }
+                        return@Runnable onError(
+                            "$safePackageName requires the following package${if (missing.size != 1) "s" else ""} to be installed first:\n$list"
+                        )
+                    }
+                }
+
                 val packageDir = File(scriptsDir, safePackageName)
                 packageDir.mkdirs()
 
