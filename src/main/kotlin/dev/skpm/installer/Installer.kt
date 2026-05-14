@@ -192,6 +192,7 @@ class Installer(private val plugin: JavaPlugin) {
                 }
 
                 val oldVersion = entry.version
+                lock.remove(safePackageName)
                 install(
                     safePackageName,
                     onComplete = { onComplete("Updated $safePackageName $oldVersion → ${pkg.latest}") },
