@@ -301,7 +301,7 @@ class Installer(private val plugin: JavaPlugin) {
                 }
 
                 val fileNames = fileMap.keys.toList()
-                lock.add(LockEntry(lockName, resource.version, fileMap))
+                lock.add(LockEntry(lockName, resource.version, fileMap, "${resource.name} (SpigotMC #${resource.id})"))
 
                 plugin.server.scheduler.runTask(plugin, Runnable {
                     reloadFiles(lockName, fileNames)
