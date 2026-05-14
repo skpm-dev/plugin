@@ -22,10 +22,11 @@ private data class LockData(
 class LockFile(private val file: File) {
 
     private val gson = GsonBuilder().setPrettyPrinting().create()
+    private val mutex = Any()
 
-    fun read(): List<LockEntry> = readData().packages
+    fun read(): List<LockEntry> = synchronized(mutex) { readData().packages }
 
-    fun add(entry: LockEntry) {
+    fun add(entry: LockEntry) = synchronized(mutex) {
         val data = readData()
         data.packages.removeIf { it.name == entry.name }
         data.packages.add(entry)
@@ -33,14 +34,14 @@ class LockFile(private val file: File) {
         writeAtomic(data)
     }
 
-    fun remove(name: String) {
+    fun remove(name: String) = synchronized(mutex) {
         val data = readData()
         if (data.packages.removeIf { it.name == name }) {
             writeAtomic(data)
         }
     }
 
-    fun has(name: String): Boolean = readData().packages.any { it.name == name }
+    fun has(name: String): Boolean = synchronized(mutex) { readData().packages.any { it.name == name } }
 
     private fun readData(): LockData {
         if (!file.exists()) return LockData()
