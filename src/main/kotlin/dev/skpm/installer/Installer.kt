@@ -63,27 +63,39 @@ class Installer(private val plugin: JavaPlugin) {
                 }
 
                 val packageDir = File(scriptsDir, safePackageName)
-                packageDir.mkdirs()
+                val stagingDir = File(scriptsDir, ".skpm-staging/$safePackageName-${pkg.latest}")
 
-                for (file in versionEntry.files) {
-                    val url = file.url ?: throw RuntimeException("File entry for ${file.name} has no URL")
-                    val rawName = file.name ?: throw RuntimeException("File entry has no name")
-                    val name = requireSafeSegment(rawName, "file name")
-                    val dest = File(packageDir, name).canonicalFile
-                    if (!dest.startsWith(packageDir.canonicalFile))
-                        throw SecurityException("File '$name' escapes package directory")
-                    val content = registry.downloadFile(url)
-                    val expected = file.sha256
-                    if (expected.isNullOrEmpty()) {
-                        plugin.logger.warning("No checksum for $name in registry — integrity check skipped")
-                    } else {
-                        val actual = sha256Hex(content)
-                        if (!actual.equals(expected, ignoreCase = true))
-                            throw SecurityException("Checksum mismatch for $name: expected $expected, got $actual")
+                stagingDir.deleteRecursively()
+                stagingDir.mkdirs()
+
+                try {
+                    for (file in versionEntry.files) {
+                        val url = file.url ?: throw RuntimeException("File entry for ${file.name} has no URL")
+                        val rawName = file.name ?: throw RuntimeException("File entry has no name")
+                        val name = requireSafeSegment(rawName, "file name")
+                        val dest = File(stagingDir, name).canonicalFile
+                        if (!dest.startsWith(stagingDir.canonicalFile))
+                            throw SecurityException("File '$name' escapes package directory")
+                        val content = registry.downloadFile(url)
+                        val expected = file.sha256
+                        if (expected.isNullOrEmpty()) {
+                            plugin.logger.warning("No checksum for $name in registry — integrity check skipped")
+                        } else {
+                            val actual = sha256Hex(content)
+                            if (!actual.equals(expected, ignoreCase = true))
+                                throw SecurityException("Checksum mismatch for $name: expected $expected, got $actual")
+                        }
+                        dest.writeText(content)
+                        plugin.logger.info("Downloaded $name")
                     }
-                    dest.writeText(content)
-                    plugin.logger.info("Downloaded $name")
+                } catch (e: Exception) {
+                    stagingDir.deleteRecursively()
+                    throw e
                 }
+
+                // All files verified — atomically replace the package directory.
+                packageDir.deleteRecursively()
+                stagingDir.renameTo(packageDir)
 
                 val fileNames = versionEntry.files.mapNotNull { it.name }
                 val integrityMap = versionEntry.files
@@ -192,11 +204,18 @@ class Installer(private val plugin: JavaPlugin) {
                 }
 
                 val oldVersion = entry.version
+                // Remove the lock entry only after the new install succeeds (B5).
+                // install() writes a fresh lock entry on success, so we remove
+                // the old one here only to avoid the "already installed" guard.
                 lock.remove(safePackageName)
                 install(
                     safePackageName,
                     onComplete = { onComplete("Updated $safePackageName $oldVersion → ${pkg.latest}") },
-                    onError = onError
+                    onError = { msg ->
+                        // Restore the old lock entry so the package is not lost.
+                        lock.add(entry)
+                        onError(msg)
+                    }
                 )
             } catch (e: Exception) {
                 plugin.logger.severe("SKPM update error: ${e.message}")
@@ -306,7 +325,7 @@ class Installer(private val plugin: JavaPlugin) {
                 plugin.server.scheduler.runTask(plugin, Runnable {
                     reloadFiles(lockName, fileNames)
                     inProgress.remove(lockName)
-                    onComplete("Installed ${resource.name} (${resource.version}) from SpigotMC")
+                    onComplete("Installed ${resource.name} (${resource.version}) from SpigotMC (unverified source — checksums are not provided by Spiget)")
                 })
             } catch (e: Exception) {
                 inProgress.remove(lockName)

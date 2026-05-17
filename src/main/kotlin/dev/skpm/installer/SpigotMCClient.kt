@@ -56,11 +56,16 @@ internal class SpigotMCClient {
             throw RuntimeException("SpigotMC download failed (HTTP ${resp.statusCode()})")
 
         val bytes = resp.body()
+        if (bytes.size > MAX_DOWNLOAD_BYTES)
+            throw RuntimeException("SpigotMC resource exceeds ${MAX_DOWNLOAD_BYTES / 1_048_576} MB compressed size limit")
+
         val contentType = resp.headers().firstValue("content-type").orElse("")
 
         return if (contentType.contains("zip") || isZipMagic(bytes)) {
             extractSkFiles(bytes)
         } else {
+            if (bytes.size > MAX_ENTRY_BYTES)
+                throw RuntimeException("SpigotMC script exceeds ${MAX_ENTRY_BYTES / 1_048_576} MB size limit")
             listOf("script.sk" to bytes)
         }
     }
@@ -82,11 +87,38 @@ internal class SpigotMCClient {
 
     private fun extractSkFiles(zip: ByteArray): List<Pair<String, ByteArray>> {
         val files = mutableListOf<Pair<String, ByteArray>>()
+        val seenNames = mutableSetOf<String>()
+        var entryCount = 0
+        var totalBytes = 0L
+
         ZipInputStream(zip.inputStream()).use { zis ->
             var entry = zis.nextEntry
             while (entry != null) {
+                if (++entryCount > MAX_ZIP_ENTRIES)
+                    throw RuntimeException("SpigotMC zip exceeds $MAX_ZIP_ENTRIES entry limit")
+
                 if (!entry.isDirectory && entry.name.endsWith(".sk")) {
-                    files.add(entry.name.substringAfterLast('/') to zis.readBytes())
+                    val bytes = zis.readNBytes(MAX_ENTRY_BYTES + 1)
+                    if (bytes.size > MAX_ENTRY_BYTES)
+                        throw RuntimeException("SpigotMC zip entry '${entry.name}' exceeds ${MAX_ENTRY_BYTES / 1_048_576} MB")
+                    totalBytes += bytes.size
+                    if (totalBytes > MAX_TOTAL_EXTRACTED_BYTES)
+                        throw RuntimeException("SpigotMC zip total extracted size exceeds ${MAX_TOTAL_EXTRACTED_BYTES / 1_048_576} MB")
+
+                    // Preserve path structure to avoid basename collisions (B9): replace
+                    // directory separators with underscores so foo/util.sk and bar/util.sk
+                    // become foo_util.sk and bar_util.sk rather than both being util.sk.
+                    val safeName = entry.name.replace('/', '_').replace('\\', '_')
+                        .trimStart('_').ifEmpty { "script.sk" }
+                    val uniqueName = if (safeName in seenNames) {
+                        var n = 1
+                        var candidate: String
+                        do { candidate = "${safeName.removeSuffix(".sk")}_$n.sk"; n++ }
+                        while (candidate in seenNames)
+                        candidate
+                    } else safeName
+                    seenNames.add(uniqueName)
+                    files.add(uniqueName to bytes)
                 }
                 entry = zis.nextEntry
             }
@@ -114,5 +146,9 @@ internal class SpigotMCClient {
 
     companion object {
         private const val SKRIPT_CATEGORY = 25
+        private const val MAX_DOWNLOAD_BYTES = 10 * 1_048_576   // 10 MB compressed
+        private const val MAX_ENTRY_BYTES = 5 * 1_048_576       // 5 MB per entry uncompressed
+        private const val MAX_TOTAL_EXTRACTED_BYTES = 20L * 1_048_576 // 20 MB total
+        private const val MAX_ZIP_ENTRIES = 200
     }
 }
