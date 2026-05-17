@@ -6,7 +6,7 @@ import dev.skpm.registry.RegistryClient
 import org.bukkit.plugin.java.JavaPlugin
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CountDownLatch
 
 class Installer(private val plugin: JavaPlugin) {
 
@@ -51,13 +51,40 @@ class Installer(private val plugin: JavaPlugin) {
                     return@Runnable onError("Package '$safePackageName' has no files listed")
                 }
 
-                if (!versionEntry.dependencies.isNullOrEmpty()) {
-                    val installedNames = lock.read().map { it.name }.toSet()
-                    val missing = versionEntry.dependencies.keys.filter { it !in installedNames }
-                    if (missing.isNotEmpty()) {
-                        val list = missing.joinToString("\n") { "  /skpm install $it" }
+                // B3: enforce addon (Bukkit plugin) version constraints
+                if (!versionEntry.addons.isNullOrEmpty()) {
+                    val violations = mutableListOf<String>()
+                    for ((addonName, constraint) in versionEntry.addons) {
+                        val installedVersion = plugin.server.pluginManager.getPlugin(addonName)?.description?.version
+                        if (installedVersion == null) {
+                            violations.add("  $addonName $constraint — not installed")
+                        } else if (!satisfiesConstraint(installedVersion, constraint)) {
+                            violations.add("  $addonName $constraint — installed: $installedVersion")
+                        }
+                    }
+                    if (violations.isNotEmpty()) {
                         return@Runnable onError(
-                            "$safePackageName requires the following package${if (missing.size != 1) "s" else ""} to be installed first:\n$list"
+                            "$safePackageName requires addon${if (violations.size != 1) "s" else ""}:\n${violations.joinToString("\n")}"
+                        )
+                    }
+                }
+
+                // B4: enforce dependency version ranges, not just presence
+                if (!versionEntry.dependencies.isNullOrEmpty()) {
+                    val installedPackages = lock.read().associate { it.name to it.version }
+                    val problems = mutableListOf<String>()
+                    for ((dep, constraint) in versionEntry.dependencies) {
+                        val installedVersion = installedPackages[dep]
+                        when {
+                            installedVersion == null ->
+                                problems.add("  /skpm install $dep  (requires $constraint)")
+                            !satisfiesConstraint(installedVersion, constraint) ->
+                                problems.add("  $dep is $installedVersion but $constraint is required — run /skpm update $dep")
+                        }
+                    }
+                    if (problems.isNotEmpty()) {
+                        return@Runnable onError(
+                            "$safePackageName has unmet dependencies:\n${problems.joinToString("\n")}"
                         )
                     }
                 }
@@ -232,32 +259,45 @@ class Installer(private val plugin: JavaPlugin) {
         }
 
         val total = installed.size
-        val updated = AtomicInteger(0)
-        val upToDate = AtomicInteger(0)
-        val failed = AtomicInteger(0)
-        val remaining = AtomicInteger(total)
+        // Process packages sequentially in a single async task (B7) so we don't
+        // spawn N concurrent GitHub fetches. CountDownLatch lets each blocking
+        // wait on update()'s callback without holding the main thread.
+        plugin.server.scheduler.runTaskAsynchronously(plugin, Runnable {
+            var updated = 0; var upToDate = 0; var failed = 0
 
-        fun finish() {
-            if (remaining.decrementAndGet() == 0) {
-                val parts = mutableListOf<String>()
-                val u = updated.get(); val s = upToDate.get(); val f = failed.get()
-                if (u > 0) parts.add("$u updated")
-                if (s > 0) parts.add("$s already up to date")
-                if (f > 0) parts.add("$f failed")
-                onComplete("Checked $total package${if (total != 1) "s" else ""}: ${parts.joinToString(", ")}.")
+            for (entry in installed) {
+                val latch = CountDownLatch(1)
+                var wasUpdated = false
+                update(
+                    entry.name,
+                    onComplete = { msg ->
+                        wasUpdated = !msg.contains("already up to date")
+                        latch.countDown()
+                    },
+                    onError = { latch.countDown() }
+                )
+                latch.await()
+                when {
+                    wasUpdated -> updated++
+                    else -> {
+                        // Distinguish "up to date" from "failed": if the lock
+                        // still has the entry at the same version, it was up to date.
+                        val stillSame = lock.read().any { it.name == entry.name && it.version == entry.version }
+                        if (stillSame) upToDate++ else failed++
+                    }
+                }
             }
-        }
 
-        installed.forEach { entry ->
-            update(
-                entry.name,
-                onComplete = { msg ->
-                    if (msg.contains("already up to date")) upToDate.incrementAndGet() else updated.incrementAndGet()
-                    finish()
-                },
-                onError = { failed.incrementAndGet(); finish() }
-            )
-        }
+            val u = updated; val s = upToDate; val f = failed
+            val parts = buildList {
+                if (u > 0) add("$u updated")
+                if (s > 0) add("$s already up to date")
+                if (f > 0) add("$f failed")
+            }
+            plugin.server.scheduler.runTask(plugin, Runnable {
+                onComplete("Checked $total package${if (total != 1) "s" else ""}: ${parts.joinToString(", ")}.")
+            })
+        })
     }
 
     private fun spigotLockName(query: String): String {
