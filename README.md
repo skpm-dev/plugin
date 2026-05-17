@@ -25,7 +25,7 @@ No configuration required.
 
 ## Commands
 
-### Registry packages
+Browse available packages at **[skpm.org/packages](https://skpm.org/packages)**.
 
 | Command | Description |
 |---|---|
@@ -37,9 +37,9 @@ No configuration required.
 | `/skpm info <package>` | Show metadata, versions, and file details for a package |
 | `/skpm search <query>` | Search the registry by name or description |
 
-### SpigotMC packages
+### SpigotMC
 
-Prefix any install with `spigotmc:` to fetch directly from SpigotMC via the Spiget API. Only **free resources in the Skript category** are accepted.
+You can also install free Skript resources directly from SpigotMC by prefixing the install with `spigotmc:`. Only **free resources in the Skript category** are accepted.
 
 ```
 /skpm install spigotmc:12345       ← install by numeric resource ID
