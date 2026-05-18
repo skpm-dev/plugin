@@ -19,7 +19,15 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v3
 
-      - run: ./gradlew test
+      - run: ./gradlew test shadowJar
+
+      - name: Upload SKPM.jar artifact
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SKPM
+          path: build/libs/SKPM.jar
+          retention-days: 7
 
       - name: Trigger e2e
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -28,3 +36,4 @@ jobs:
           token: ${{ secrets.E2E_DISPATCH_TOKEN }}
           repository: skpm-dev/e2e
           event-type: run-e2e
+          client-payload: '{"plugin_run_id": "${{ github.run_id }}"}'
